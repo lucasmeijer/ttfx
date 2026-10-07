@@ -38,7 +38,7 @@ def child_env() -> dict[str, str]:
     return {k: v for k, v in os.environ.items() if k not in ("COLUMNS", "LINES")}
 
 
-def spawn(args, stdout_pipe: bool):
+def spawn(args, stdout_pipe: bool, engine=None):
     """Fork onto a pty; stdin is always a pipe, stdout optionally one too."""
     sin_r, sin_w = os.pipe()
     out_r, out_w = (os.pipe() if stdout_pipe else (None, None))
@@ -51,7 +51,10 @@ def spawn(args, stdout_pipe: bool):
             os.close(out_r)
             os.dup2(out_w, 1)
             os.close(out_w)
-        os.execve(BIN, [BIN] + args, child_env())
+        env = child_env()
+        if engine is not None:
+            env["TTFX_FX"] = engine
+        os.execve(BIN, [BIN] + args, env)
         os._exit(127)
     os.close(sin_r)
     if stdout_pipe:
@@ -60,9 +63,9 @@ def spawn(args, stdout_pipe: bool):
 
 
 def drive(args, resizes=(), cols=80, rows=24, first_delay=0.30, gap=0.05,
-          budget=8.0, stdout_pipe=False, slow=False):
+          budget=8.0, stdout_pipe=False, slow=False, engine=None):
     """Run to completion (or budget), applying `resizes`; return the stream."""
-    pid, fd, sin_w, out_r = spawn(args, stdout_pipe)
+    pid, fd, sin_w, out_r = spawn(args, stdout_pipe, engine)
     set_size(fd, cols, rows)
     os.write(sin_w, TEXT)
     os.close(sin_w)
@@ -141,6 +144,17 @@ def main() -> int:
 
     print("tty, cursor is not shown between runs")
     check("show-cursor before the rebuild", changed[: changed.rfind(HIDE)].count(SHOW), 0)
+
+    # Short input still fits both sizes: only fullscreen geometry changes.
+    # Exercise width shrink and height growth, on both rendering engines.
+    for engine in ("0", "force"):
+        for size in ((40, 24), (80, 32)):
+            print(f"tty, fullscreen resize to {size}, engine={engine}")
+            stream = drive(["--seed", "1", "--fullscreen", "pour"],
+                           resizes=[size], engine=engine)
+            check("runs", runs_in(stream), 2)
+            check("cursor restored only at completion", stream.count(SHOW), 1)
+            check("completed", stream.endswith(SHOW + b"\r\n"), True)
 
     print(f"\nresize behavior: {'all checks passed' if not failures else f'{failures} failed'}")
     return 1 if failures else 0

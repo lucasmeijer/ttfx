@@ -1,4 +1,4 @@
-//! CLI root: the 15 TerminalConfig options (same names/defaults as upstream tte)
+//! CLI root: TerminalConfig options (same names/defaults as upstream tte)
 //! plus global args. Effect subcommands land in M3+.
 
 use clap::Parser;
@@ -38,7 +38,9 @@ fn parse_canvas_dimension(s: &str) -> Result<i64, String> {
 /// argutils.ColorArg: <=3 chars -> xterm int 0-255, else hex.
 pub fn parse_color(s: &str) -> Result<Color, String> {
     if s.len() <= 3 {
-        let code: u8 = s.parse().map_err(|_| format!("invalid color value: '{s}'"))?;
+        let code: u8 = s
+            .parse()
+            .map_err(|_| format!("invalid color value: '{s}'"))?;
         Ok(Color::from_xterm(code))
     } else {
         Color::from_hex(s)
@@ -54,7 +56,9 @@ fn parse_existing_color_handling(s: &str) -> Result<ExistingColorHandling, Strin
         "always" => Ok(ExistingColorHandling::Always),
         "dynamic" => Ok(ExistingColorHandling::Dynamic),
         "ignore" => Ok(ExistingColorHandling::Ignore),
-        _ => Err(format!("invalid choice: '{s}' (choose from 'always', 'dynamic', 'ignore')")),
+        _ => Err(format!(
+            "invalid choice: '{s}' (choose from 'always', 'dynamic', 'ignore')"
+        )),
     }
 }
 
@@ -95,6 +99,10 @@ pub struct Cli {
 
     #[arg(long = "frame-rate", default_value_t = 60, value_parser = parse_non_negative_int)]
     pub frame_rate: i64,
+
+    /// Fill the terminal and center the text; automatically refit on resize
+    #[arg(long, conflicts_with_all = ["canvas_width", "canvas_height", "anchor_text", "ignore_terminal_dimensions"])]
+    pub fullscreen: bool,
 
     #[arg(long = "canvas-width", default_value_t = -1, value_parser = parse_canvas_dimension, allow_negative_numbers = true)]
     pub canvas_width: i64,
@@ -173,14 +181,63 @@ impl Cli {
             existing_color_handling: self.existing_color_handling,
             wrap_text: self.wrap_text,
             frame_rate: self.frame_rate,
-            canvas_width: self.canvas_width,
-            canvas_height: self.canvas_height,
+            canvas_width: if self.fullscreen {
+                0
+            } else {
+                self.canvas_width
+            },
+            canvas_height: if self.fullscreen {
+                0
+            } else {
+                self.canvas_height
+            },
             anchor_canvas: self.anchor_canvas,
-            anchor_text: self.anchor_text,
+            anchor_text: if self.fullscreen {
+                Anchor::C
+            } else {
+                self.anchor_text
+            },
             ignore_terminal_dimensions: self.ignore_terminal_dimensions,
             reuse_canvas: self.reuse_canvas,
             no_eol: self.no_eol,
             no_restore_cursor: self.no_restore_cursor,
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn fullscreen_uses_terminal_dimensions_and_centers_text() {
+        let config = Cli::parse_from(["ttfx", "--fullscreen", "rain"]).terminal_config();
+        assert_eq!(config.canvas_width, 0);
+        assert_eq!(config.canvas_height, 0);
+        assert_eq!(config.anchor_text, Anchor::C);
+        assert!(!config.ignore_terminal_dimensions);
+    }
+
+    #[test]
+    fn default_layout_is_unchanged() {
+        let config = Cli::parse_from(["ttfx", "rain"]).terminal_config();
+        assert_eq!(config.canvas_width, -1);
+        assert_eq!(config.canvas_height, -1);
+        assert_eq!(config.anchor_text, Anchor::Sw);
+    }
+
+    #[test]
+    fn fullscreen_rejects_conflicting_layout_options() {
+        for option in [
+            vec!["--canvas-width", "60"],
+            vec!["--canvas-height", "18"],
+            vec!["--anchor-text", "sw"],
+            vec!["--ignore-terminal-dimensions"],
+        ] {
+            let mut args = vec!["ttfx", "--fullscreen"];
+            args.extend(option);
+            args.push("rain");
+            assert!(Cli::try_parse_from(args).is_err());
         }
     }
 }

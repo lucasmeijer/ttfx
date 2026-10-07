@@ -163,6 +163,24 @@ Terminal options (canvas size and anchoring, color handling, frame rate, text wr
 before the effect name; effect options after it. Option names and defaults match `tte`, so
 existing invocations work with the binary name swapped.
 
+### Fullscreen and resizing
+
+```sh
+cat banner.txt | ttfx --fullscreen rain
+```
+
+`--fullscreen` fills the terminal canvas and centers the text (equivalent to
+`--canvas-width 0 --canvas-height 0 --anchor-text c`). It cannot be combined with
+explicit canvas dimensions, a text anchor, or `--ignore-terminal-dimensions`.
+It changes the drawing area, not the size of the input characters.
+
+Terminal resizing is already supported, with or without `--fullscreen`: on a
+TTY, ttfx waits for a 50 ms pause in resize events, then rebuilds the canvas and
+**restarts the effect** if the layout changed. It does not preserve animation
+progress. Fullscreen follows both width and height, even when the input itself
+fits the old size. Resizes do not restart redirected output. Exported `COLUMNS`
+and `LINES` override the detected terminal size; unset them to follow the TTY.
+
 ## Building
 
 ```sh
